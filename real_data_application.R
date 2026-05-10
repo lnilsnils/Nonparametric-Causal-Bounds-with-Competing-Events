@@ -4,7 +4,6 @@ library(splines)
 library(here)
 library(dplyr)
 
-setwd("/Users/nilslei/Desktop/courses/workshop_materials")
 prostate <- read.csv("prostate.csv")
 
 ## data cleaning
