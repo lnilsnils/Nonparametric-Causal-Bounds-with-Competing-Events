@@ -6,7 +6,7 @@ library(dplyr)
 
 prostate <- read.csv("prostate.csv")
 
-## data cleaning
+#data cleaning
 prostate$allCause <- prostate$status != "alive"
 prostate$eventType <- as.factor(prostate$status)
 levels(prostate$eventType) <-
@@ -17,8 +17,8 @@ levels(prostate$eventType) <-
 prostate$rx <- as.factor(prostate$rx)
 prost_red <- prostate[prostate$rx %in% levels(prostate$rx)[3:4], ]
 prost_red$temprx <- as.integer(prost_red$rx) - 3
-prost_red$rx <- abs(1 - prost_red$temprx) #DES is A=1 and placebo A=0
-prost_red$eventType <- as.integer(prost_red$eventType) - 1 #0 is censoring, 1 is pdeath, 2 is odeath
+prost_red$rx <- abs(1 - prost_red$temprx) #1 = DES and 0 = placebo
+prost_red$eventType <- as.integer(prost_red$eventType) - 1 #0 = censoring, 1 = prostate cancer death, and 2 = death due to other causes
 prost_red$hgBinary <- prost_red$hg < 12
 prost_red$ageCat <- cut2(prost_red$age, c(0, 60, 70, 80, 100))
 prost_red$normalAct <- prost_red$pf == "normal activity"
@@ -29,7 +29,7 @@ prost_red$Tstart <- -0.01
 cut_times <- c(0:50)
 
 
-## build long-format dataset from a (wide) prost_red-style data frame
+#build long-format dataset from a (wide) prost_red-style data frame
 build_long <- function(data_wide) {
   data_wide$Tstart <- -0.01
   long <- survSplit(data = data_wide, cut = cut_times, start = "Tstart", end = "dtime", event = "allCause")
@@ -41,7 +41,6 @@ build_long <- function(data_wide) {
   long$otherDeath[long$eventCens == 1] <- NA
   long$prostateDeath[long$otherDeath == 1] <- NA
   long <- long[long$dtime < length(cut_times), ]
-  #both estimators need a copy of rx under another name
   long$Orx <- long$rx
   long$Mrx <- long$rx
   return(long)
@@ -52,7 +51,7 @@ baseline <- long_prost_red[long_prost_red$dtime == 0, ]
 n <- length(unique(long_prost_red$patno))
 
 
-## cumulative incidence (g-formula)
+#cumulative incidence (g-formula)
 calculateCumInc <- function(inputData, timepts = cut_times, competing = FALSE) {
   cumulativeIncidence <- matrix(NA, ncol = length(unique(inputData$patno)), nrow = length(cut_times))
   #insert event probabilities at the first time interval
@@ -72,7 +71,7 @@ calculateCumInc <- function(inputData, timepts = cut_times, competing = FALSE) {
   return(meanCumulativeIncidence)
 }
 
-## nonparametric cumulative hazard (IPW)
+#nonparametric cumulative hazard (IPW)
 nonParametricCumHaz <- function(weightVector, inputdata, grp, outcomeProstate = TRUE) {
   outputHazards <- rep(NA, length.out = length(cut_times))
   counter <- 1
@@ -90,7 +89,7 @@ nonParametricCumHaz <- function(weightVector, inputdata, grp, outcomeProstate = 
   return(outputHazards)
 }
 
-## nonparametric cumulative incidence (IPW)
+#nonparametric cumulative incidence (IPW)
 nonParametricCumInc <- function(hazard1, hazard2, competing = FALSE) {
   inc <- rep(NA, length.out = length(cut_times))
   cumulativeSurvival <- c(1, cumprod((1 - hazard1) * (1 - hazard2)))
@@ -105,7 +104,7 @@ nonParametricCumInc <- function(hazard1, hazard2, competing = FALSE) {
   return(cumInc)
 }
 
-## discrete cumulative incidence (IPW)
+#discrete cumulative incidence (IPW)
 discrete_cuminc_prost <- function(weight_vector, inputdata, grp = 0, outcome_y = TRUE, follow_up = 1:50) {
   event_vec <- rep(NA, length.out = length(follow_up))
   counter <- 1
@@ -126,7 +125,7 @@ discrete_cuminc_prost <- function(weight_vector, inputdata, grp = 0, outcome_y =
 }
 
 
-## g-estimator: point estimates from a single long dataset
+## g-estimator
 compute_g_estimates <- function(long_data, base_data, n_pat) {
   
   #pooled logistic regression for prostate cancer death
@@ -173,7 +172,7 @@ compute_g_estimates <- function(long_data, base_data, n_pat) {
   cumIncTreatAy <- calculateCumInc(treatAy)
   cumIncTreatAd <- calculateCumInc(treatAd)
   
-  #CDE(0): hazardO set to 0
+  #CDE(0)
   treated_de <- base_data[rep(1:n_pat, each = length(cut_times)), ]
   treated_de$dtime <- rep(cut_times, n_pat); treated_de$rx <- 1
   placebo_de <- base_data[rep(1:n_pat, each = length(cut_times)), ]
@@ -210,10 +209,10 @@ compute_g_estimates <- function(long_data, base_data, n_pat) {
 }
 
 
-## IPW estimator: point estimates from a single long dataset
+## IPW estimator
 compute_ipw_estimates <- function(long_data, base_data, n_pat) {
   
-  #CDE (M set to 0)
+  #CDE(0)
   plrFitM_de <- glm(otherDeath ~ dtime + I(dtime^2) + normalAct + ageCat + hx + hgBinary + rx,
                     data = long_data, family = binomial())
   
@@ -276,37 +275,28 @@ compute_ipw_estimates <- function(long_data, base_data, n_pat) {
            risk_x1 = risk_x1, risk_x0 = risk_x0))
 }
 
-
-## point estimates: g-estimator
-g_point <- compute_g_estimates(long_prost_red, baseline, n)
-
-cat("=== Point Estimates at 50 months (Risk Difference) - g-estimator ===\n\n")
-cat("CDE(0):", round(g_point["CDE_rd"], 4), "\n")
-cat("NDE(0)/SDE(0):", round(g_point["SDE_0_rd"], 4), "\n")
-cat("NIE(0)/SIE(0):", round(g_point["SIE_0_rd"], 4), "\n")
-cat("NDE(1)/SDE(1):", round(g_point["SDE_1_rd"], 4), "\n")
-cat("NIE(1)/SIE(1):", round(g_point["SIE_1_rd"], 4), "\n\n")
-
-cat("Decomposition check: TE = NDE(0)/SDE(0) + NIE(1)/SIE(1) =", round(g_point["SDE_0_rd"] + g_point["SIE_1_rd"], 4), "\n")
-cat("Decomposition check: TE = NIE(0)/SIE(0) + NDE(1)/SDE(1) =", round(g_point["SIE_0_rd"] + g_point["SDE_1_rd"], 4), "\n\n")
-
-
-## point estimates: IPW estimator
+#point estimates
+g_point   <- compute_g_estimates(long_prost_red, baseline, n)
 ipw_point <- compute_ipw_estimates(long_prost_red, baseline, n)
 
-cat("=== Point Estimates at 50 months (Risk Difference) - IPW estimator ===\n\n")
-cat("CDE(0):", round(ipw_point["CDE_rd"], 4), "\n")
-cat("NDE(0)/SDE(0):", round(ipw_point["SDE_0_rd"], 4), "\n")
-cat("NIE(0)/SIE(0):", round(ipw_point["SIE_0_rd"], 4), "\n")
-cat("NDE(1)/SDE(1):", round(ipw_point["SDE_1_rd"], 4), "\n")
-cat("NIE(1)/SIE(1):", round(ipw_point["SIE_1_rd"], 4), "\n\n")
+estimands <- c("CDE_rd", "SDE_0_rd", "SIE_0_rd", "SDE_1_rd", "SIE_1_rd")
+labels    <- c("CDE(0)", "NDE(0)/SDE(0)", "NIE(0)/SIE(0)",
+               "NDE(1)/SDE(1)", "NIE(1)/SIE(1)")
 
-cat("Decomposition check: TE = NDE(0)/SDE(0) + NIE(1)/SIE(1) =", round(ipw_point["SDE_0_rd"] + ipw_point["SIE_1_rd"], 4), "\n")
-cat("Decomposition check: TE = NIE(0)/SIE(0) + NDE(1)/SDE(1) =", round(ipw_point["SIE_0_rd"] + ipw_point["SDE_1_rd"], 4), "\n")
-cat("Total Effect:", round(ipw_point["risk_x1"] - ipw_point["risk_x0"], 4), "\n\n")
+point_tab <- data.frame(
+  Estimand = labels,
+  g_est    = round(g_point[estimands], 4),
+  ipw_est  = round(ipw_point[estimands], 4),
+  row.names = NULL
+)
 
 
-## bootstrap confidence intervals (shared loop for both estimators)
+c(SDE0_plus_SIE1_g   = unname(g_point["SDE_0_rd"]   + g_point["SIE_1_rd"]),
+  SIE0_plus_SDE1_g   = unname(g_point["SIE_0_rd"]   + g_point["SDE_1_rd"]),
+  SDE0_plus_SIE1_ipw = unname(ipw_point["SDE_0_rd"] + ipw_point["SIE_1_rd"]),
+  SIE0_plus_SDE1_ipw = unname(ipw_point["SIE_0_rd"] + ipw_point["SDE_1_rd"])) |> round(4)
+
+#bootstrap confidence intervals 
 set.seed(12345)
 nboot <- 1000
 
@@ -368,61 +358,44 @@ for (b in 1:nboot) {
 }
 
 
-## results
+#results
 alpha <- 0.05
 lower_q <- alpha / 2
 upper_q <- 1 - alpha / 2
 
-#g-estimator
-cat("\nSuccessful bootstrap iterations (g-estimator):", sum(!is.na(boot_g_CDE_rd)), "out of", nboot, "\n\n")
+#bootstrap CIs
+make_ci_table <- function(point, boots, labels, estimands) {
+  cis <- sapply(boots, quantile, probs = c(lower_q, upper_q), na.rm = TRUE)
+  data.frame(
+    Estimand = labels,
+    Estimate = round(point[estimands], 4),
+    lo       = round(cis[1, ], 4),
+    hi       = round(cis[2, ], 4),
+    row.names = NULL
+  )
+}
 
-ci_g_CDE_rd <- quantile(boot_g_CDE_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-ci_g_SDE_0_rd <- quantile(boot_g_SDE_0_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-ci_g_SIE_0_rd <- quantile(boot_g_SIE_0_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-ci_g_SDE_1_rd <- quantile(boot_g_SDE_1_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-ci_g_SIE_1_rd <- quantile(boot_g_SIE_1_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
+boots_g <- list(boot_g_CDE_rd, boot_g_SDE_0_rd, boot_g_SIE_0_rd,
+                boot_g_SDE_1_rd, boot_g_SIE_1_rd)
+boots_ipw <- list(boot_ipw_CDE_rd, boot_ipw_SDE_0_rd, boot_ipw_SIE_0_rd,
+                  boot_ipw_SDE_1_rd, boot_ipw_SIE_1_rd)
 
-results_g <- data.frame(
-  Estimand = c("CDE(0)", "NDE(0)/SDE(0)", "NIE(0)/SIE(0)", "NDE(1)/SDE(1)", "NIE(1)/SIE(1)"),
-  Estimate = round(c(g_point["CDE_rd"], g_point["SDE_0_rd"], g_point["SIE_0_rd"], g_point["SDE_1_rd"], g_point["SIE_1_rd"]), 4),
-  CI_lower = round(c(ci_g_CDE_rd[1], ci_g_SDE_0_rd[1], ci_g_SIE_0_rd[1], ci_g_SDE_1_rd[1], ci_g_SIE_1_rd[1]), 4),
-  CI_upper = round(c(ci_g_CDE_rd[2], ci_g_SDE_0_rd[2], ci_g_SIE_0_rd[2], ci_g_SDE_1_rd[2], ci_g_SIE_1_rd[2]), 4)
-)
-
-cat("=== Results at 50 months with 95% Bootstrap CIs (Risk Difference) - g-estimator ===\n\n")
-print(knitr::kable(results_g, col.names = c("Estimand", "Estimate", "95% CI Lower", "95% CI Upper")))
-
-#IPW estimator
-cat("\n\nSuccessful bootstrap iterations (IPW estimator):", sum(!is.na(boot_ipw_CDE_rd)), "out of", nboot, "\n\n")
-
-ci_ipw_CDE_rd <- quantile(boot_ipw_CDE_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-ci_ipw_SDE_0_rd <- quantile(boot_ipw_SDE_0_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-ci_ipw_SIE_0_rd <- quantile(boot_ipw_SIE_0_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-ci_ipw_SDE_1_rd <- quantile(boot_ipw_SDE_1_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-ci_ipw_SIE_1_rd <- quantile(boot_ipw_SIE_1_rd, probs = c(lower_q, upper_q), na.rm = TRUE)
-
-results_ipw <- data.frame(
-  Estimand = c("CDE(0)", "NDE(0)/SDE(0)", "NIE(0)/SIE(0)", "NDE(1)/SDE(1)", "NIE(1)/SIE(1)"),
-  Estimate = round(c(ipw_point["CDE_rd"], ipw_point["SDE_0_rd"], ipw_point["SIE_0_rd"], ipw_point["SDE_1_rd"], ipw_point["SIE_1_rd"]), 4),
-  CI_lower = round(c(ci_ipw_CDE_rd[1], ci_ipw_SDE_0_rd[1], ci_ipw_SIE_0_rd[1], ci_ipw_SDE_1_rd[1], ci_ipw_SIE_1_rd[1]), 4),
-  CI_upper = round(c(ci_ipw_CDE_rd[2], ci_ipw_SDE_0_rd[2], ci_ipw_SIE_0_rd[2], ci_ipw_SDE_1_rd[2], ci_ipw_SIE_1_rd[2]), 4)
-)
-
-cat("=== Results at 50 months with 95% Bootstrap CIs (Risk Difference) - IPW estimator ===\n\n")
-print(knitr::kable(results_ipw, col.names = c("Estimand", "Estimate", "95% CI Lower", "95% CI Upper")))
+results_g   <- make_ci_table(g_point,   boots_g,   labels, estimands)
+results_ipw <- make_ci_table(ipw_point, boots_ipw, labels, estimands)
 
 
-#bounds
+results_g
+results_ipw
+
+
+## bounds
 
 #for all patients who are even-free at month 50, set dtime to 50 and eventType to 0 (censored)
-prostRed$eventType[prostRed$dtime > 50] <- 0
-prostRed$dtime[prostRed$dtime > 50] <- 50
+prost_red$eventType[prost_red$dtime > 50] <- 0
+prost_red$dtime[prost_red$dtime > 50] <- 50
 
-table(prostRed$eventType[prostRed$rx==0])/length(prostRed$eventType[prostRed$rx==0])
-table(prostRed$eventType[prostRed$rx==1])/length(prostRed$eventType[prostRed$rx==1])
-
-prostRed_treated <- prostRed[prostRed$rx == 1,]
-prostRed_placebo <- prostRed[prostRed$rx == 0,]
+prostRed_treated <- prost_red[prost_red$rx == 1,]
+prostRed_placebo <- prost_red[prost_red$rx == 0,]
 
 data_treated_eventAtTime_50 <- prostRed_treated %>%
   group_by(patno) %>%  
@@ -462,9 +435,6 @@ prostate_p10.1 <- nrow(data_treated_eventAtTime_50[
 ]) / nrow(data_treated_eventAtTime_50)
 
 
-prostate_p00.0 + prostate_p01.0 + prostate_p10.0
-prostate_p00.1 + prostate_p01.1 + prostate_p10.1
-
 #CDE(0)
 prostate_p00.0 + prostate_p01.1 - 1
 1 - prostate_p00.1 - prostate_p01.0 
@@ -486,8 +456,5 @@ max((-prostate_p00.0 - prostate_p01.0 + prostate_p01.1), (-1 + prostate_p00.1 + 
 min((1 - prostate_p00.0 - prostate_p01.0), prostate_p01.1)
 
 #Frechet bounds for the NDE
-max(0, nrow(prostRed[prostRed$rx == 1 & prostRed$eventType == 1,]) / nrow(prostRed[prostRed$rx == 1 & prostRed$eventType != 2,]) + nrow(prostRed[prostRed$rx == 0 & prostRed$eventType != 2,]) / nrow(prostRed[prostRed$rx == 0,]) -1) - nrow(prostRed[prostRed$rx == 0 & prostRed$eventType == 1,]) / nrow(prostRed[prostRed$rx == 0,]) 
-min(nrow(prostRed[prostRed$rx == 1 & prostRed$eventType == 1,]) / nrow(prostRed[prostRed$rx == 1 & prostRed$eventType != 2,]), nrow(prostRed[prostRed$rx == 0 & prostRed$eventType != 2,]) / nrow(prostRed[prostRed$rx == 0,]) - nrow(prostRed[prostRed$rx == 0 & prostRed$eventType == 1,]) / nrow(prostRed[prostRed$rx == 0,])) 
-
-
-
+max(0, nrow(prost_red[prost_red$rx == 1 & prost_red$eventType == 1,]) / nrow(prost_red[prost_red$rx == 1 & prost_red$eventType != 2,]) + nrow(prost_red[prost_red$rx == 0 & prost_red$eventType != 2,]) / nrow(prost_red[prost_red$rx == 0,]) -1) - nrow(prost_red[prost_red$rx == 0 & prost_red$eventType == 1,]) / nrow(prost_red[prost_red$rx == 0,]) 
+min(nrow(prost_red[prost_red$rx == 1 & prost_red$eventType == 1,]) / nrow(prost_red[prost_red$rx == 1 & prost_red$eventType != 2,]), nrow(prost_red[prost_red$rx == 0 & prost_red$eventType != 2,]) / nrow(prost_red[prost_red$rx == 0,]) - nrow(prost_red[prost_red$rx == 0 & prost_red$eventType == 1,]) / nrow(prost_red[prost_red$rx == 0,])) 
