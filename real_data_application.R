@@ -54,9 +54,7 @@ n <- length(unique(long_prost_red$patno))
 #cumulative incidence (g-formula)
 calculateCumInc <- function(inputData, timepts = cut_times, competing = FALSE) {
   cumulativeIncidence <- matrix(NA, ncol = length(unique(inputData$patno)), nrow = length(cut_times))
-  #insert event probabilities at the first time interval
   cumulativeIncidence[1, ] <- inputData[inputData$dtime == 0, ]$hazardP * inputData[inputData$dtime == 0, ]$hazardO
-  #survival probabilities at each time
   survivalProb <- t(aggregate(s ~ patno, data = inputData, FUN = cumprod)$s)
   for (i in 2:length(cut_times)) {
     subInputDataP <- inputData[inputData$dtime == (i - 1), ]$hazardP
@@ -172,7 +170,6 @@ compute_g_estimates <- function(long_data, base_data, n_pat) {
   cumIncTreatAy <- calculateCumInc(treatAy)
   cumIncTreatAd <- calculateCumInc(treatAd)
   
-  #CDE(0)
   treated_de <- base_data[rep(1:n_pat, each = length(cut_times)), ]
   treated_de$dtime <- rep(cut_times, n_pat); treated_de$rx <- 1
   placebo_de <- base_data[rep(1:n_pat, each = length(cut_times)), ]
@@ -212,7 +209,6 @@ compute_g_estimates <- function(long_data, base_data, n_pat) {
 ## IPW estimator
 compute_ipw_estimates <- function(long_data, base_data, n_pat) {
   
-  #CDE(0)
   plrFitM_de <- glm(otherDeath ~ dtime + I(dtime^2) + normalAct + ageCat + hx + hgBinary + rx,
                     data = long_data, family = binomial())
   
@@ -228,7 +224,6 @@ compute_ipw_estimates <- function(long_data, base_data, n_pat) {
   cumInc_placebo_cde <- nonParametricCumInc(Placebo_cde_hazP, hazM_zero)
   CDE_rd <- cumInc_treated_cde[length(cut_times)] - cumInc_placebo_cde[length(cut_times)]
   
-  #separable effects
   plrFitM_sep <- glm(otherDeath ~ Mrx * (dtime + I(dtime^2) + I(dtime^3)) + normalAct + ageCat + hx + hgBinary,
                      data = long_data, family = binomial())
   
